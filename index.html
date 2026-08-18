@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DocChat — chat with any PDF or YouTube video</title>
+<style>
+  :root {
+    --bg: #0b0c0e;
+    --panel: #14161a;
+    --panel-2: #1b1e24;
+    --line: #262a31;
+    --text: #e9eaec;
+    --muted: #8b929d;
+    --accent: #E63946;
+    --accent-soft: rgba(230, 57, 70, 0.13);
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    display: flex;
+    flex-direction: column;
+  }
+  button { font: inherit; cursor: pointer; }
+  input, textarea { font: inherit; color: inherit; }
+
+  /* ---------------------------------- header --------------------------------- */
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 13px 20px; border-bottom: 1px solid var(--line);
+    background: rgba(11,12,14,.9); backdrop-filter: blur(8px);
+    position: sticky; top: 0; z-index: 30;
+  }
+  .logo { display: flex; align-items: center; gap: 9px; font-weight: 650; letter-spacing: -.01em; }
+  .logo .dot { width: 10px; height: 10px; border-radius: 3px; background: var(--accent); flex: 0 0 auto; }
+
+  .header-right { margin-left: auto; display: none; align-items: center; gap: 10px; min-width: 0; }
+  .header-right.show { display: flex; }
+  .src-chip {
+    display: flex; align-items: center; gap: 8px; min-width: 0;
+    padding: 5px 12px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 999px; color: var(--muted); font-size: 13px;
+  }
+  .src-chip .kind { color: var(--accent); font-weight: 600; flex: 0 0 auto; }
+  .src-chip b {
+    color: var(--text); font-weight: 500; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .new-source {
+    flex: 0 0 auto; background: var(--panel-2); border: 1px solid var(--line);
+    color: var(--text); padding: 7px 13px; border-radius: 9px; font-size: 13px; font-weight: 550;
+  }
+  .new-source:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ------------------------------- empty state ------------------------------- */
+  .empty { flex: 1; display: grid; place-items: center; padding: 44px 20px 60px; }
+  .empty-inner { width: 100%; max-width: 560px; text-align: center; }
+  .empty h1 { font-size: 30px; line-height: 1.25; margin: 0 0 10px; letter-spacing: -.02em; }
+  .empty h1 span { color: var(--accent); }
+  .empty p.sub { color: var(--muted); margin: 0 0 26px; }
+
+  .toggle {
+    display: inline-flex; padding: 4px; gap: 4px; margin-bottom: 20px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+  }
+  .toggle button {
+    border: 0; background: none; color: var(--muted);
+    padding: 8px 20px; border-radius: 999px; font-weight: 550; transition: background .15s, color .15s;
+  }
+  .toggle button[aria-selected="true"] { background: var(--accent); color: #fff; }
+
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; }
+  .drop {
+    border: 1.5px dashed var(--line); border-radius: var(--radius);
+    padding: 38px 22px; transition: border-color .15s, background .15s;
+  }
+  .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+  .drop .big { font-weight: 600; margin-bottom: 5px; }
+  .drop .small, .panel .small { color: var(--muted); font-size: 13px; }
+
+  .btn { background: var(--accent); color: #fff; border: 0; padding: 11px 20px; border-radius: 10px; font-weight: 600; }
+  .btn:hover { filter: brightness(1.08); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; filter: none; }
+
+  .url-row { display: flex; gap: 10px; }
+  .url-row input {
+    flex: 1; min-width: 0; background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 10px; padding: 11px 14px; outline: none;
+  }
+  .url-row input:focus { border-color: var(--accent); }
+
+  /* loading + error states */
+  .status { margin-top: 16px; min-height: 22px; font-size: 13.5px; color: var(--muted); }
+  .status .row { display: inline-flex; align-items: center; gap: 9px; text-align: left; }
+  .status.err { color: var(--accent); }
+  .spinner {
+    width: 13px; height: 13px; flex: 0 0 auto; border-radius: 50%;
+    border: 2px solid var(--line); border-top-color: var(--accent);
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .status .bar {
+    display: block; height: 3px; margin-top: 10px; border-radius: 2px;
+    background: var(--panel-2); overflow: hidden;
+  }
+  .status .bar i { display: block; height: 100%; background: var(--accent); transition: width .2s ease; }
+
+  /* -------------------------------- workspace -------------------------------- */
+  .workspace { flex: 1; display: none; min-height: 0; grid-template-columns: 1fr; }
+  .workspace.show { display: grid; }
+  .workspace.with-video { grid-template-columns: minmax(320px, 42%) 1fr; }
+
+  .source-pane { display: none; padding: 20px; border-right: 1px solid var(--line); min-width: 0; }
+  .workspace.with-video .source-pane { display: block; }
+  .player-wrap {
+    position: sticky; top: 74px; aspect-ratio: 16 / 9; width: 100%;
+    background: #000; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
+  }
+  .player-wrap iframe { width: 100%; height: 100%; border: 0; display: block; }
+  .video-meta { margin-top: 13px; }
+  .video-meta .t { font-weight: 600; line-height: 1.4; }
+  .video-meta .c { color: var(--muted); font-size: 13px; margin-top: 2px; }
+
+  .chat-pane { display: flex; flex-direction: column; min-height: 0; }
+  .messages { flex: 1; overflow-y: auto; padding: 22px 20px 6px; }
+  .messages-inner { max-width: 740px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+
+  /* ------------------------------ message bubbles ---------------------------- */
+  .msg { display: flex; max-width: 100%; }
+  .msg.user { justify-content: flex-end; }
+  .bubble {
+    max-width: 88%; min-width: 0; padding: 11px 15px; border-radius: 15px;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .msg.user .bubble {
+    background: var(--accent); color: #fff;
+    border-bottom-right-radius: 5px;
+  }
+  .msg.assistant .bubble {
+    background: var(--panel); border: 1px solid var(--line);
+    border-bottom-left-radius: 5px;
+  }
+  .msg.assistant.is-error .bubble { border-color: rgba(230,57,70,.45); background: var(--accent-soft); color: var(--accent); }
+  .who {
+    font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 5px;
+  }
+  .msg.user .who { color: rgba(255,255,255,.75); }
+
+  /* --------------------------------- citations ------------------------------- */
+  .cite {
+    display: inline-block; border-radius: 6px; padding: 0 6px;
+    font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap;
+    border: 1px solid var(--line); background: var(--panel-2); color: var(--muted);
+  }
+  .cite.seek {
+    color: var(--accent); border-color: rgba(230,57,70,.4); background: var(--accent-soft);
+    cursor: pointer; font-weight: 550;
+  }
+  .cite.seek:hover, .cite.seek:focus-visible {
+    background: var(--accent); color: #fff; border-color: var(--accent); outline: none;
+  }
+
+  .truncated-note {
+    margin-top: 10px; padding-left: 10px; border-left: 2px solid var(--accent);
+    font-size: 12.5px; color: var(--muted);
+  }
+
+  .suggest { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .suggest button {
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+    padding: 7px 12px; border-radius: 999px; font-size: 13px;
+  }
+  .suggest button:hover { color: var(--text); border-color: var(--accent); }
+
+  .typing { display: inline-flex; gap: 4px; padding: 3px 0; }
+  .typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: bob 1s infinite; }
+  .typing i:nth-child(2) { animation-delay: .15s; }
+  .typing i:nth-child(3) { animation-delay: .3s; }
+  @keyframes bob { 0%,60%,100% { opacity: .25; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
+
+  /* --------------------------------- composer -------------------------------- */
+  .composer { border-top: 1px solid var(--line); padding: 13px 20px 14px; background: var(--bg); }
+  .composer-inner {
+    max-width: 740px; margin: 0 auto; display: flex; gap: 10px; align-items: flex-end;
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 9px 9px 9px 14px;
+  }
+  .composer-inner:focus-within { border-color: var(--accent); }
+  .composer textarea { flex: 1; background: none; border: 0; outline: none; resize: none; max-height: 150px; padding: 6px 0; }
+  .send { border: 0; background: var(--accent); color: #fff; width: 37px; height: 37px; border-radius: 10px; flex: 0 0 auto; }
+  .send:disabled { opacity: .4; cursor: not-allowed; }
+  footer.disclaimer {
+    max-width: 740px; margin: 9px auto 0; font-size: 11.5px; line-height: 1.5;
+    color: var(--muted); text-align: center;
+  }
+
+  /* --------------------------------- mobile ---------------------------------- */
+  @media (max-width: 880px) {
+    .workspace.with-video { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+    .source-pane {
+      border-right: 0; border-bottom: 1px solid var(--line);
+      padding: 12px 14px; position: sticky; top: 55px; z-index: 10; background: var(--bg);
+    }
+    /* Cap the stacked player so the conversation stays on screen. */
+    .player-wrap { position: static; width: auto; max-width: 100%; max-height: 34vh; margin: 0 auto; }
+    .video-meta { display: flex; gap: 8px; align-items: baseline; margin-top: 9px; }
+    .video-meta .t { font-size: 14px; }
+    .messages { padding: 16px 14px 4px; }
+    .bubble { max-width: 94%; }
+    .composer { padding: 10px 14px 12px; }
+    .empty h1 { font-size: 25px; }
+    .empty { padding: 28px 16px 40px; }
+    .panel { padding: 18px; }
+    .url-row { flex-direction: column; }
+    .header-right { gap: 8px; }
+    .src-chip { max-width: 45vw; }
+  }
+  @media (max-width: 420px) {
+    .src-chip .kind { display: none; }
+    .toggle button { padding: 8px 14px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><span class="dot"></span>DocChat</div>
+  <div class="header-right" id="headerRight">
+    <div class="src-chip"><span class="kind" id="srcKind">PDF</span><b id="srcName"></b></div>
+    <button class="new-source" id="newSourceBtn">New source</button>
+  </div>
+</header>
+
+<!-- ============================== EMPTY STATE ============================== -->
+<section class="empty" id="emptyState">
+  <div class="empty-inner">
+    <h1>Chat with any <span>PDF</span> or <span>YouTube video</span></h1>
+    <p class="sub">Answers come only from the source you provide — page citations for PDFs, clickable timestamps for video.</p>
+
+    <div class="toggle" role="tablist">
+      <button id="tabPdf" role="tab" aria-selected="true">Upload PDF</button>
+      <button id="tabYt" role="tab" aria-selected="false">Paste YouTube URL</button>
+    </div>
+
+    <div class="panel" id="panelPdf">
+      <div class="drop" id="drop">
+        <div class="big">Drop a PDF here</div>
+        <div class="small" style="margin-bottom:16px">Text is extracted in your browser — the file never leaves your device.</div>
+        <button class="btn" id="pickBtn">Choose a file</button>
+        <input type="file" id="fileInput" accept="application/pdf" hidden />
+      </div>
+    </div>
+
+    <div class="panel" id="panelYt" hidden>
+      <div class="url-row">
+        <input id="ytUrl" type="url" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off" spellcheck="false" />
+        <button class="btn" id="ytBtn">Load</button>
+      </div>
+      <div class="small" style="margin-top:11px;text-align:left">
+        The video needs captions. Its transcript is fetched once, then reused for every question.
+      </div>
+    </div>
+
+    <div class="status" id="status" role="status" aria-live="polite"></div>
+  </div>
+</section>
+
+<!-- =============================== CHAT STATE ============================== -->
+<main class="workspace" id="workspace">
+  <aside class="source-pane" id="sourcePane">
+    <div class="player-wrap"><iframe id="player" title="YouTube player"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; picture-in-picture"
+      allowfullscreen></iframe></div>
+    <div class="video-meta">
+      <div class="t" id="vTitle"></div>
+      <div class="c" id="vChannel"></div>
+    </div>
+  </aside>
+
+  <section class="chat-pane">
+    <div class="messages" id="messages"><div class="messages-inner" id="messagesInner"></div></div>
+    <div class="composer">
+      <div class="composer-inner">
+        <textarea id="input" rows="1" placeholder="Ask something about this source…" aria-label="Your question"></textarea>
+        <button class="send" id="sendBtn" title="Send" aria-label="Send">↑</button>
+      </div>
+      <footer class="disclaimer" id="disclaimer"></footer>
+    </div>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+/* ================================== state ================================== */
+const state = { mode: "pdf", source: null, messages: [], busy: false };
+let playerBaseSrc = "";   // embed URL without the autoplay/start params
+
+const $ = (id) => document.getElementById(id);
+const el = {
+  empty: $("emptyState"), workspace: $("workspace"), status: $("status"),
+  tabPdf: $("tabPdf"), tabYt: $("tabYt"), panelPdf: $("panelPdf"), panelYt: $("panelYt"),
+  drop: $("drop"), pickBtn: $("pickBtn"), fileInput: $("fileInput"),
+  ytUrl: $("ytUrl"), ytBtn: $("ytBtn"),
+  headerRight: $("headerRight"), srcKind: $("srcKind"), srcName: $("srcName"),
+  newSourceBtn: $("newSourceBtn"),
+  sourcePane: $("sourcePane"), player: $("player"), vTitle: $("vTitle"), vChannel: $("vChannel"),
+  messages: $("messages"), messagesInner: $("messagesInner"),
+  input: $("input"), sendBtn: $("sendBtn"), disclaimer: $("disclaimer"),
+};
+
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+/* ------------------------- loading / error indicators ---------------------- */
+function setStatus(msg, opts = {}) {
+  const { error = false, spinner = false, progress = null } = opts;
+  el.status.classList.toggle("err", error);
+  el.status.innerHTML = "";
+  if (!msg) return;
+
+  const row = document.createElement("div");
+  row.className = "row";
+  if (spinner) row.appendChild(Object.assign(document.createElement("span"), { className: "spinner" }));
+  row.appendChild(document.createTextNode(msg));
+  el.status.appendChild(row);
+
+  if (progress !== null) {
+    const bar = document.createElement("span");
+    bar.className = "bar";
+    const fill = document.createElement("i");
+    fill.style.width = `${Math.round(progress * 100)}%`;
+    bar.appendChild(fill);
+    el.status.appendChild(bar);
+  }
+}
+
+/* =============================== mode toggle =============================== */
+function setMode(mode) {
+  state.mode = mode;
+  const isPdf = mode === "pdf";
+  el.tabPdf.setAttribute("aria-selected", String(isPdf));
+  el.tabYt.setAttribute("aria-selected", String(!isPdf));
+  el.panelPdf.hidden = !isPdf;
+  el.panelYt.hidden = isPdf;
+  setStatus("");
+}
+el.tabPdf.onclick = () => setMode("pdf");
+el.tabYt.onclick = () => { setMode("youtube"); el.ytUrl.focus(); };
+
+/* ===================== flow 1: PDF, extracted in-browser ================== */
+el.pickBtn.onclick = () => el.fileInput.click();
+el.fileInput.onchange = (e) => { if (e.target.files[0]) loadPdf(e.target.files[0]); };
+
+["dragenter", "dragover"].forEach((ev) =>
+  el.drop.addEventListener(ev, (e) => { e.preventDefault(); el.drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((ev) =>
+  el.drop.addEventListener(ev, (e) => { e.preventDefault(); el.drop.classList.remove("over"); }));
+el.drop.addEventListener("drop", (e) => {
+  const file = e.dataTransfer.files[0];
+  if (file) loadPdf(file);
+});
+
+async function loadPdf(file) {
+  if (file.type !== "application/pdf" && !/\.pdf$/i.test(file.name)) {
+    return setStatus("That's not a PDF.", { error: true });
+  }
+  setStatus(`Reading ${file.name}…`, { spinner: true });
+  try {
+    const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+    const parts = [];
+    for (let n = 1; n <= pdf.numPages; n++) {
+      setStatus(`Extracting text — page ${n} of ${pdf.numPages}`, { spinner: true, progress: n / pdf.numPages });
+      const page = await pdf.getPage(n);
+      const content = await page.getTextContent();
+      const text = content.items.map((i) => i.str).join(" ").replace(/\s+/g, " ").trim();
+      // These markers are what let Claude cite (p. n) accurately.
+      parts.push(`[PAGE ${n}]\n${text}\n[END PAGE ${n}]`);
+    }
+    const documentText = parts.join("\n\n");
+    const extracted = documentText.replace(/\[(END )?PAGE \d+\]/g, "").trim();
+    if (extracted.length < 200) {
+      return setStatus(
+        "This looks like a scanned PDF — almost no selectable text. Reading it would need OCR, which isn't supported.",
+        { error: true }
+      );
+    }
+    enterChat({ kind: "pdf", name: file.name, pages: pdf.numPages, documentText });
+  } catch (err) {
+    setStatus(err.message || "Could not read that PDF.", { error: true });
+  }
+}
+
+/* ================ flow 2: YouTube, transcript fetched server-side ========= */
+el.ytBtn.onclick = loadVideo;
+el.ytUrl.addEventListener("keydown", (e) => { if (e.key === "Enter") loadVideo(); });
+
+async function loadVideo() {
+  const url = el.ytUrl.value.trim();
+  if (!url) return setStatus("Paste a YouTube URL first.", { error: true });
+
+  el.ytBtn.disabled = true;
+  setStatus("Fetching transcript…", { spinner: true });
+  try {
+    const res = await fetch("/api/transcript", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ youtubeUrl: url }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!data.ok) throw new Error(data.message || "Could not fetch that transcript.");
+
+    enterChat({
+      kind: "youtube",
+      videoId: data.videoId,
+      videoTitle: data.title,
+      channel: data.channel,
+      segments: data.segments,   // fetched once, reused for every question
+    });
+  } catch (err) {
+    setStatus(err.message, { error: true });
+  } finally {
+    el.ytBtn.disabled = false;
+  }
+}
+
+/* ============================== enter chat state =========================== */
+function enterChat(source) {
+  state.source = source;
+  state.messages = [];
+  el.messagesInner.innerHTML = "";
+  setStatus("");
+
+  el.empty.style.display = "none";
+  el.workspace.classList.add("show");
+  el.headerRight.classList.add("show");
+
+  const isVideo = source.kind === "youtube";
+  el.workspace.classList.toggle("with-video", isVideo);
+
+  if (isVideo) {
+    el.srcKind.textContent = "Video";
+    el.srcName.textContent = source.videoTitle;
+    el.vTitle.textContent = source.videoTitle;
+    el.vChannel.textContent = source.channel || "";
+    // Embedded player, JS API enabled.
+    playerBaseSrc =
+      `https://www.youtube.com/embed/${encodeURIComponent(source.videoId)}` +
+      `?enablejsapi=1&rel=0&modestbranding=1&playsinline=1`;
+    el.player.src = playerBaseSrc;
+    el.disclaimer.textContent =
+      "DocChat answers only from this video's transcript and can still misread it. Check the cited moment before relying on an answer.";
+  } else {
+    el.srcKind.textContent = "PDF";
+    el.srcName.textContent = source.name;
+    el.player.src = "about:blank";
+    playerBaseSrc = "";
+    el.disclaimer.textContent =
+      `DocChat answers only from this ${source.pages}-page document and can still misread it. Check the original pages before relying on an answer.`;
+  }
+
+  greet(isVideo);
+  el.input.focus();
+}
+
+/* =============================== new source =============================== */
+el.newSourceBtn.onclick = () => {
+  // Clear both source kinds and every trace of the session.
+  state.source = null;
+  state.messages = [];
+  state.busy = false;
+  playerBaseSrc = "";
+
+  el.player.src = "about:blank";
+  el.messagesInner.innerHTML = "";
+  el.vTitle.textContent = "";
+  el.vChannel.textContent = "";
+  el.srcName.textContent = "";
+
+  el.fileInput.value = "";
+  el.ytUrl.value = "";
+  el.input.value = "";
+  el.input.style.height = "auto";
+  el.sendBtn.disabled = false;
+
+  el.workspace.classList.remove("show", "with-video");
+  el.headerRight.classList.remove("show");
+  el.empty.style.display = "";
+  setMode("pdf");     // back to the mode picker, PDF selected
+};
+
+/* ============================== message rendering ========================= */
+function bubbleFor(role) {
+  const wrap = document.createElement("div");
+  wrap.className = `msg ${role}`;
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  const who = document.createElement("div");
+  who.className = "who";
+  who.textContent = role === "user" ? "You" : "DocChat";
+  bubble.appendChild(who);
+  wrap.appendChild(bubble);
+  el.messagesInner.appendChild(wrap);
+  scrollDown();
+  return { wrap, bubble };
+}
+
+function greet(isVideo) {
+  const { bubble } = bubbleFor("assistant");
+  const line = document.createElement("div");
+  line.textContent = isVideo
+    ? "Transcript loaded. Ask anything about this video — I'll cite the exact moment, and you can click it to jump there."
+    : "Document loaded. Ask anything about it — I'll cite the page.";
+  bubble.appendChild(line);
+
+  const suggest = document.createElement("div");
+  suggest.className = "suggest";
+  const ideas = isVideo
+    ? ["Summarize the main argument", "Key takeaways?", "Give me a timestamped outline"]
+    : ["Summarize this document", "What are the key findings?", "List the main conclusions"];
+  for (const text of ideas) {
+    const b = document.createElement("button");
+    b.textContent = text;
+    b.onclick = () => { el.input.value = text; send(); };
+    suggest.appendChild(b);
+  }
+  bubble.appendChild(suggest);
+}
+
+const escapeHtml = (s) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+const toSeconds = (ts) => ts.split(":").map(Number).reduce((acc, n) => acc * 60 + n, 0);
+
+/* ------------------- THE KEY FEATURE: clickable timestamps ---------------- */
+/**
+ * Reload the embedded player at `seconds`, per the embed API's start param.
+ * Note: this re-instantiates the iframe, so playback restarts from that point.
+ */
+function seekPlayer(seconds) {
+  if (!playerBaseSrc) return;
+  el.player.src = `${playerBaseSrc}&autoplay=1&start=${Math.max(0, Math.floor(seconds))}`;
+  if (window.matchMedia("(max-width: 880px)").matches) {
+    el.sourcePane.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+}
+
+function renderAnswer(bubble, text) {
+  // Preserve the "DocChat" label, replace only the body.
+  const who = bubble.querySelector(".who");
+  bubble.innerHTML = "";
+  if (who) bubble.appendChild(who);
+
+  const body = document.createElement("div");
+  let html = escapeHtml(text);
+
+  if (state.source?.kind === "youtube") {
+    // (M:SS) → clickable span. Minutes are unbounded because the transcript is
+    // prefixed [M:SS], so a two-hour video legitimately cites (127:30);
+    // H:MM:SS is accepted too.
+    html = html.replace(
+      /\((\d{1,3}:\d{2}(?::\d{2})?(?:\s*,\s*\d{1,3}:\d{2}(?::\d{2})?)*)\)/g,
+      (_, group) =>
+        group
+          .split(",")
+          .map((ts) => ts.trim())
+          .map((ts) =>
+            `<span class="cite seek" role="button" tabindex="0" data-seek="${toSeconds(ts)}" ` +
+            `title="Jump to ${ts}">${ts}</span>`
+          )
+          .join(" ")
+    );
+  } else {
+    // PDF: page citations stay plain text — deliberately not clickable.
+    html = html.replace(
+      /\(p\.\s*(\d+(?:\s*,\s*\d+)*)\)/gi,
+      (_, pages) =>
+        `<span class="cite">p.&nbsp;${pages.split(",").map((p) => p.trim()).join(", ")}</span>`
+    );
+  }
+
+  body.innerHTML = html;
+  bubble.appendChild(body);
+
+  body.querySelectorAll("span.seek[data-seek]").forEach((span) => {
+    const go = () => seekPlayer(Number(span.dataset.seek));
+    span.addEventListener("click", go);
+    span.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); }
+    });
+  });
+}
+
+function scrollDown() { el.messages.scrollTop = el.messages.scrollHeight; }
+
+/* ================================== send ================================== */
+el.sendBtn.onclick = send;
+el.input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+});
+el.input.addEventListener("input", () => {
+  el.input.style.height = "auto";
+  el.input.style.height = Math.min(el.input.scrollHeight, 150) + "px";
+});
+
+async function send() {
+  if (state.busy || !state.source) return;
+  const question = el.input.value.trim();
+  if (!question) return;
+
+  el.input.value = "";
+  el.input.style.height = "auto";
+  state.busy = true;
+  el.sendBtn.disabled = true;
+
+  const userTurn = bubbleFor("user");
+  userTurn.bubble.appendChild(document.createTextNode(question));
+  scrollDown();
+
+  const history = state.messages.slice();   // full conversation so far
+  state.messages.push({ role: "user", content: question });
+
+  const answerTurn = bubbleFor("assistant");
+  const loading = document.createElement("span");
+  loading.className = "typing";
+  loading.innerHTML = "<i></i><i></i><i></i>";
+  answerTurn.bubble.appendChild(loading);
+  scrollDown();
+
+  // One endpoint, payload shaped by the active mode.
+  const payload = { question, history };
+  if (state.source.kind === "pdf") {
+    payload.documentText = state.source.documentText;
+  } else {
+    payload.segments = state.source.segments;
+    payload.videoTitle = state.source.videoTitle;
+  }
+
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Request failed (${res.status}).`);
+    if (!data.answer) throw new Error("The model returned an empty answer.");
+
+    renderAnswer(answerTurn.bubble, data.answer);
+    if (data.truncated) {
+      const note = document.createElement("div");
+      note.className = "truncated-note";
+      note.textContent = "This source was too long to read in full, so the end of it was cut off.";
+      answerTurn.bubble.appendChild(note);
+    }
+    state.messages.push({ role: "assistant", content: data.answer });
+  } catch (err) {
+    answerTurn.wrap.classList.add("is-error");
+    const who = answerTurn.bubble.querySelector(".who");
+    answerTurn.bubble.innerHTML = "";
+    if (who) answerTurn.bubble.appendChild(who);
+    answerTurn.bubble.appendChild(
+      document.createTextNode(err.message || "Something went wrong. Try again.")
+    );
+    state.messages.pop();   // drop the unanswered turn so history stays clean
+  } finally {
+    scrollDown();
+    state.busy = false;
+    el.sendBtn.disabled = false;
+    el.input.focus();
+  }
+}
+</script>
+</body>
+</html>

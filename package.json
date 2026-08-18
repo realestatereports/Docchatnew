@@ -1,0 +1,13 @@
+{
+  "name": "docchat-unified",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chat with any PDF or YouTube video — answers grounded only in the source, with page or timestamp citations.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.70.0"
+  }
+}
