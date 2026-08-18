@@ -222,7 +222,7 @@ async function fetchViaSupadata(videoId) {
   const endpoint =
     `https://api.supadata.ai/v1/transcript` +
     `?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}` +
-    `&text=false&mode=native`;
+    `&text=false&mode=native&lang=en`;   // without this it returns the video's default track
 
   try {
     let res = await fetch(endpoint, { headers: { "x-api-key": apiKey } });
@@ -270,7 +270,7 @@ async function fetchViaSupadata(videoId) {
       .filter((seg) => Number.isFinite(seg.start) && seg.text.length > 0);
 
     return segments.length
-      ? { ok: true, segments }
+      ? { ok: true, segments, lang: body?.lang || null }
       : { ok: false, message: "The transcript service returned an empty transcript." };
   }
 }
@@ -349,6 +349,8 @@ export default async function handler(req, res) {
           videoId,
           title: meta.title || "Untitled video",
           channel: meta.channel || "",
+          lang: viaService.lang || null,
+          source: "service",
           segments: viaService.segments,
         });
       }
@@ -424,5 +426,13 @@ export default async function handler(req, res) {
     return fail(`The caption track for "${title}" came back empty.`);
   }
 
-  return res.status(200).json({ ok: true, videoId, title, channel, segments });
+  return res.status(200).json({
+    ok: true,
+    videoId,
+    title,
+    channel,
+    lang: track.languageCode || null,
+    source: "direct",
+    segments,
+  });
 }
