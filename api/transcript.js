@@ -374,34 +374,41 @@ export default async function handler(req, res) {
     return fail(`"${title}" has no captions, so there's no transcript to read.`);
   }
 
-  // The page's own baseUrl no longer serves caption data, so re-resolve the
-  // chosen language against the player endpoint, which still does.
-  const chosen = pickBestTrack(pageTracks);
-  let track = null;
+  // The page's own baseUrl no longer serves caption data, so prefer the player
+  // endpoint's track list — and pick from whichever list we actually fetch from,
+  // rather than matching across two lists. The lists differ by requesting IP, and
+  // a failed cross-match silently fell through to the first track (Arabic, on a
+  // 31-language video), which is how English videos came back in another language.
+  let tracks = pageTracks;
   try {
     const alt = innertube || (await fetchPlayerViaInnertube(videoId));
     const altTracks = alt?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-    if (Array.isArray(altTracks) && altTracks.length > 0) {
-      track =
-        altTracks.find(
-          (t) => t.languageCode === chosen?.languageCode && t.kind === chosen?.kind
-        ) ||
-        altTracks.find((t) => t.languageCode === chosen?.languageCode) ||
-        pickBestTrack(altTracks);
-    }
+    if (Array.isArray(altTracks) && altTracks.length > 0) tracks = altTracks;
   } catch {
-    // fall through to the page's track below
+    // keep the page's list
   }
 
-  track = track || chosen;
+  const track = pickBestTrack(tracks);
   if (!track?.baseUrl) {
     return fail(`"${title}" lists caption tracks but none of them can be downloaded.`);
   }
 
   // --- 4. fetch and parse the timedtext XML ---------------------------------
+  // Pin the language and strip `tlang`, so YouTube can't hand back a machine
+  // translation of the track we asked for.
+  let captionUrl = track.baseUrl;
+  try {
+    const u = new URL(track.baseUrl);
+    u.searchParams.delete("tlang");
+    if (track.languageCode) u.searchParams.set("lang", track.languageCode);
+    captionUrl = u.toString();
+  } catch {
+    // non-parseable URL: use it as-is
+  }
+
   let xml;
   try {
-    const capRes = await fetch(track.baseUrl, {
+    const capRes = await fetch(captionUrl, {
       headers: { "User-Agent": USER_AGENT, "Accept-Language": "en-US,en;q=0.9" },
     });
     if (!capRes.ok) {
