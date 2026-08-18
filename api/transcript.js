@@ -219,13 +219,14 @@ async function fetchViaSupadata(videoId) {
   const apiKey = process.env.SUPADATA_API_KEY;
   if (!apiKey) return { ok: false, message: null };   // not configured; stay quiet
 
-  const endpoint =
+  const buildEndpoint = (lang) =>
     `https://api.supadata.ai/v1/transcript` +
     `?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}` +
-    `&text=false&mode=native&lang=en`;   // without this it returns the video's default track
+    `&text=false&mode=native` +
+    (lang ? `&lang=${lang}` : "");   // without a lang it returns the video's default track
 
   try {
-    let res = await fetch(endpoint, { headers: { "x-api-key": apiKey } });
+    let res = await fetch(buildEndpoint("en"), { headers: { "x-api-key": apiKey } });
 
     // Long videos can come back as an async job; poll briefly for it.
     if (res.status === 202) {
@@ -255,7 +256,14 @@ async function fetchViaSupadata(videoId) {
     if (!res.ok) {
       return { ok: false, message: `The transcript service returned ${res.status}.` };
     }
-    return shape(await res.json());
+    const first = shape(await res.json());
+    if (first.ok) return first;
+
+    // English specifically wasn't available. Retry unrestricted — a transcript in
+    // the video's own language still beats no transcript, and Claude can read it.
+    const retry = await fetch(buildEndpoint(null), { headers: { "x-api-key": apiKey } });
+    if (!retry.ok) return { ok: false, message: null };   // treated as "no captions" below
+    return shape(await retry.json());
   } catch {
     return { ok: false, message: "Couldn't reach the transcript service." };
   }
@@ -271,7 +279,7 @@ async function fetchViaSupadata(videoId) {
 
     return segments.length
       ? { ok: true, segments, lang: body?.lang || null }
-      : { ok: false, message: "The transcript service returned an empty transcript." };
+      : { ok: false, message: null };   // no captions; the caller phrases this
   }
 }
 
@@ -353,6 +361,13 @@ export default async function handler(req, res) {
           source: "service",
           segments: viaService.segments,
         });
+      }
+      // A null message means the service reached the video but found no captions.
+      if (viaService.message === null && process.env.SUPADATA_API_KEY) {
+        const meta = (await fetchOEmbedMeta(videoId)) || {};
+        return fail(
+          `"${meta.title || "That video"}" has no captions, so there's no transcript to read.`
+        );
       }
       return fail(
         viaService.message ||
